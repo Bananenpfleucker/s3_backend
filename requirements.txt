@@ -1,0 +1,7 @@
+flask
+schedule
+sqlite3
+requests
+pymupdf
+pdf2image
+pytesseract
