@@ -42,4 +42,4 @@ if cursor.fetchone()[0] == 0:
 connection.commit()
 connection.close()
 
-print("✅ Datenbank wurde initialisiert und fehlende Spalten ergänzt.")
+print("Datenbank wurde initialisiert und fehlende Spalten ergänzt.")
