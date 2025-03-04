@@ -1,6 +1,6 @@
 {
     "info": {
-        "name": "Flask Guidelines API",
+        "name": "S3 Backend API",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
@@ -10,9 +10,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                    "raw": "http://localhost:5000/guidelines",
+                    "raw": "http://s3-navigator.duckdns.org:5000/guidelines",
                     "protocol": "http",
-                    "host": ["localhost"],
+                    "host": ["s3-navigator", "duckdns", "org"],
                     "port": "5000",
                     "path": ["guidelines"]
                 }
@@ -24,9 +24,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                    "raw": "http://localhost:5000/guidelines/1",
+                    "raw": "http://s3-navigator.duckdns.org:5000/guidelines/1",
                     "protocol": "http",
-                    "host": ["localhost"],
+                    "host": ["s3-navigator", "duckdns", "org"],
                     "port": "5000",
                     "path": ["guidelines", "1"]
                 }
@@ -38,9 +38,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                    "raw": "http://localhost:5000/guidelines/search?q=knee",
+                    "raw": "http://s3-navigator.duckdns.org:5000/guidelines/search?q=knee",
                     "protocol": "http",
-                    "host": ["localhost"],
+                    "host": ["s3-navigator", "duckdns", "org"],
                     "port": "5000",
                     "path": ["guidelines", "search"],
                     "query": [
@@ -55,9 +55,9 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                    "raw": "http://localhost:5000/guidelines/1/download",
+                    "raw": "http://s3-navigator.duckdns.org:5000/guidelines/1/download",
                     "protocol": "http",
-                    "host": ["localhost"],
+                    "host": ["s3-navigator", "duckdns", "org"],
                     "port": "5000",
                     "path": ["guidelines", "1", "download"]
                 }
