@@ -4,6 +4,7 @@ import os
 
 app = Flask(__name__)
 
+# Datenbankverbindungsdetails
 DB_HOST = "192.168.178.121"
 DB_NAME = "s3_backend_db"
 DB_USER = "postgres"
@@ -12,6 +13,7 @@ DB_PORT = "5432"
 
 
 def get_db_connection():
+    """Stellt eine Verbindung zur PostgreSQL-Datenbank her."""
     try:
         conn = psycopg2.connect(
             dbname=DB_NAME,
@@ -33,11 +35,15 @@ def get_guidelines():
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title FROM guidelines")
+
+    # Title wurde durch `awmf_guideline_id` ersetzt
+    cursor.execute("SELECT id, awmf_guideline_id FROM guidelines")
     guidelines = cursor.fetchall()
+
     cursor.close()
     conn.close()
-    return jsonify([{"id": g[0], "title": g[1]} for g in guidelines])
+
+    return jsonify([{"id": g[0], "awmf_guideline_id": g[1]} for g in guidelines])
 
 
 @app.route("/guidelines/<int:guideline_id>", methods=["GET"])
@@ -47,13 +53,15 @@ def get_guideline(guideline_id):
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
+
     cursor.execute("SELECT * FROM guidelines WHERE id = %s", (guideline_id,))
     guideline = cursor.fetchone()
+    columns = [desc[0] for desc in cursor.description] if guideline else []
+
     cursor.close()
     conn.close()
 
     if guideline:
-        columns = [desc[0] for desc in cursor.description]
         return jsonify(dict(zip(columns, guideline)))
     return jsonify({"error": "Leitlinie nicht gefunden"}), 404
 
@@ -69,12 +77,15 @@ def search_guidelines():
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, extracted_text FROM guidelines WHERE extracted_text ILIKE %s", (f"%{query}%",))
+
+    cursor.execute("SELECT id, awmf_guideline_id, extracted_text FROM guidelines WHERE extracted_text ILIKE %s",
+                   (f"%{query}%",))
     results = cursor.fetchall()
+
     cursor.close()
     conn.close()
 
-    return jsonify([{"id": r[0], "title": r[1], "extracted_text": r[2]} for r in results])
+    return jsonify([{"id": r[0], "awmf_guideline_id": r[1], "extracted_text": r[2]} for r in results])
 
 
 @app.route("/guidelines/<int:guideline_id>/download", methods=["GET"])
@@ -84,8 +95,10 @@ def download_guideline_pdf(guideline_id):
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
-    cursor.execute("SELECT title, pdf FROM guidelines WHERE id = %s", (guideline_id,))
+
+    cursor.execute("SELECT awmf_guideline_id, pdf FROM guidelines WHERE id = %s", (guideline_id,))
     row = cursor.fetchone()
+
     cursor.close()
     conn.close()
 
@@ -101,4 +114,3 @@ def download_guideline_pdf(guideline_id):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
-
