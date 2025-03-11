@@ -30,40 +30,131 @@ def get_db_connection():
 
 @app.route("/guidelines", methods=["GET"])
 def get_guidelines():
-    """Gibt alle verfügbaren Leitlinien zurück."""
+    """Gibt gültige Leitlinien mit Filter- und Pagination-Optionen zurück."""
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
 
-    # Title wurde durch `awmf_guideline_id` ersetzt
-    cursor.execute("SELECT id, awmf_guideline_id FROM guidelines")
+    # Query-Parameter abrufen
+    limit = request.args.get("limit", 20, type=int)  # Standard: 20
+    offset = request.args.get("offset", 0, type=int)
+    title = request.args.get("title", type=str)
+    lversion = request.args.get("lversion", type=str)
+    stand = request.args.get("stand", type=str)
+    remark = request.args.get("remark", type=str)
+
+    # Basis-Query (nur gültige Leitlinien)
+    query = """
+        SELECT id, awmf_guideline_id, title, lversion, valid_until, stand, remark
+        FROM guidelines
+        WHERE (valid_until IS NULL OR valid_until > NOW())
+    """
+    params = []
+
+    # Dynamische Filter anwenden
+    if title:
+        query += " AND title ILIKE %s"
+        params.append(f"%{title}%")
+    if lversion:
+        query += " AND lversion = %s"
+        params.append(lversion)
+    if stand:
+        query += " AND stand = %s"
+        params.append(stand)
+    if remark:
+        query += " AND remark ILIKE %s"
+        params.append(f"%{remark}%")
+
+    # Pagination
+    query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    # SQL-Abfrage ausführen
+    cursor.execute(query, tuple(params))
     guidelines = cursor.fetchall()
 
     cursor.close()
     conn.close()
 
-    return jsonify([{"id": g[0], "awmf_guideline_id": g[1]} for g in guidelines])
+    return jsonify([
+        {
+            "id": g[0],
+            "awmf_guideline_id": g[1],
+            "title": g[2],
+            "lversion": g[3],
+            "valid_until": g[4],
+            "stand": g[5],
+            "remark": g[6],
+        }
+        for g in guidelines
+    ])
 
 
-@app.route("/guidelines/<int:guideline_id>", methods=["GET"])
-def get_guideline(guideline_id):
-    """Gibt eine einzelne Leitlinie anhand der ID zurück."""
+@app.route("/guidelines/valid", methods=["GET"])
+def get_valid_guidelines():
+    """Gibt nur Leitlinien zurück, die noch gültig sind (valid_until > NOW())."""
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM guidelines WHERE id = %s", (guideline_id,))
-    guideline = cursor.fetchone()
-    columns = [desc[0] for desc in cursor.description] if guideline else []
+    cursor.execute("""
+        SELECT id, awmf_guideline_id, title, lversion, valid_until, stand, remark
+        FROM guidelines
+        WHERE valid_until IS NULL OR valid_until > NOW()
+        ORDER BY created_at DESC
+    """)
 
+    guidelines = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    if guideline:
-        return jsonify(dict(zip(columns, guideline)))
-    return jsonify({"error": "Leitlinie nicht gefunden"}), 404
+    return jsonify([
+        {
+            "id": g[0],
+            "awmf_guideline_id": g[1],
+            "title": g[2],
+            "lversion": g[3],
+            "valid_until": g[4],
+            "stand": g[5],
+            "remark": g[6],
+        }
+        for g in guidelines
+    ])
+
+
+@app.route("/guidelines/expired", methods=["GET"])
+def get_expired_guidelines():
+    """Gibt nur abgelaufene Leitlinien zurück (valid_until <= NOW())."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, awmf_guideline_id, title, lversion, valid_until, stand, remark
+        FROM guidelines
+        WHERE valid_until IS NOT NULL AND valid_until <= NOW()
+        ORDER BY valid_until DESC
+    """)
+
+    guidelines = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify([
+        {
+            "id": g[0],
+            "awmf_guideline_id": g[1],
+            "title": g[2],
+            "lversion": g[3],
+            "valid_until": g[4],
+            "stand": g[5],
+            "remark": g[6],
+        }
+        for g in guidelines
+    ])
 
 
 @app.route("/guidelines/search", methods=["GET"])
@@ -78,14 +169,26 @@ def search_guidelines():
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, awmf_guideline_id, extracted_text FROM guidelines WHERE extracted_text ILIKE %s",
-                   (f"%{query}%",))
-    results = cursor.fetchall()
+    cursor.execute("""
+        SELECT id, awmf_guideline_id, title, lversion, extracted_text
+        FROM guidelines
+        WHERE extracted_text ILIKE %s
+    """, (f"%{query}%",))
 
+    results = cursor.fetchall()
     cursor.close()
     conn.close()
 
-    return jsonify([{"id": r[0], "awmf_guideline_id": r[1], "extracted_text": r[2]} for r in results])
+    return jsonify([
+        {
+            "id": r[0],
+            "awmf_guideline_id": r[1],
+            "title": r[2],
+            "lversion": r[3],
+            "extracted_text": r[4],
+        }
+        for r in results
+    ])
 
 
 @app.route("/guidelines/<int:guideline_id>/download", methods=["GET"])
@@ -98,7 +201,6 @@ def download_guideline_pdf(guideline_id):
 
     cursor.execute("SELECT awmf_guideline_id, pdf FROM guidelines WHERE id = %s", (guideline_id,))
     row = cursor.fetchone()
-
     cursor.close()
     conn.close()
 
