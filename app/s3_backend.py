@@ -1,8 +1,10 @@
 from flask import Flask, jsonify, request, send_file
+from flask_cors import CORS
 import psycopg2
 import os
 
 app = Flask(__name__)
+CORS(app)
 
 # Datenbankverbindungsdetails
 DB_HOST = "192.168.178.121"
@@ -179,7 +181,6 @@ def search_guidelines():
 
 @app.route("/guidelines/<int:guideline_id>/download", methods=["GET"])
 def download_guideline_pdf(guideline_id):
-    """Stellt das PDF-Dokument einer Leitlinie zum Download bereit."""
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
@@ -201,4 +202,5 @@ def download_guideline_pdf(guideline_id):
 
 
 if __name__ == "__main__":
+
     app.run(host="0.0.0.0", port=5000, debug=False)
