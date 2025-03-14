@@ -14,6 +14,29 @@ DB_PASSWORD = "PostgresPassword"
 DB_PORT = "5432"
 
 
+def json_serial(guidelines):
+    return jsonify(
+        [
+            {
+                "id": g[0],
+                "awmf_guideline_id": g[1],
+                "detail_page_url": g[2],
+                "pdf_url": g[3],
+                "pdf": g[4],
+                "extracted_text": [5],
+                "created_at": g[6],
+                "compressed_text": g[7],
+                "titel": g[8],
+                "lversion": g[9],
+                "valid_until": g[10],
+                "stand": g[11],
+                "aktueller_hinweis": g[12]
+            }
+            for g in guidelines
+        ]
+    )
+
+
 def get_db_connection():
     """Stellt eine Verbindung zur PostgreSQL-Datenbank her."""
     try:
@@ -58,7 +81,19 @@ def get_guidelines():
 
     # Basis-Query (nur gültige Leitlinien)
     query = f"""
-        SELECT id, awmf_guideline_id, title, lversion, valid_until, stand, aktueller_hinweis, created_at
+        SELECT  id,
+                awmf_guideline_id,
+                null as detail_page_url,
+                null as pdf_url,
+                null as pdf,
+                null as extracted_text,
+                created_at,
+                null compressed_text,  
+                title,
+                lversion,
+                valid_until,
+                stand,
+                aktueller_hinweis
         FROM guidelines
         WHERE (valid_until IS NULL OR valid_until > NOW())
         {order_clause}
@@ -71,19 +106,7 @@ def get_guidelines():
     cursor.close()
     conn.close()
 
-    return jsonify([
-        {
-            "id": g[0],
-            "awmf_guideline_id": g[1],
-            "title": g[2],
-            "lversion": g[3],
-            "valid_until": g[4],
-            "stand": g[5],
-            "aktueller_hinweis": g[6],
-            "created_at": g[7]
-        }
-        for g in guidelines
-    ])
+    return json_serial(guidelines)
 
 
 @app.route("/guidelines/latest", methods=["GET"])
@@ -95,7 +118,20 @@ def get_latest_guidelines():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, awmf_guideline_id, title, lversion, valid_until, stand, aktueller_hinweis, created_at
+        SELECT
+        id,
+        awmf_guideline_id,
+        null as detail_page_url,
+        null as pdf_url,
+        null as pdf,
+        null as extracted_text,
+        null created_at,
+        null compressed_text,  
+        title,
+        lversion,
+        valid_until,
+        stand,
+        aktueller_hinweis  
         FROM guidelines
         WHERE (valid_until IS NULL OR valid_until > NOW())
         ORDER BY created_at DESC
@@ -106,19 +142,7 @@ def get_latest_guidelines():
     cursor.close()
     conn.close()
 
-    return jsonify([
-        {
-            "id": g[0],
-            "awmf_guideline_id": g[1],
-            "title": g[2],
-            "lversion": g[3],
-            "valid_until": g[4],
-            "stand": g[5],
-            "aktueller_hinweis": g[6],
-            "created_at": g[7]
-        }
-        for g in guidelines
-    ])
+    return json_serial(guidelines)
 
 @app.route("/guidelines/search", methods=["GET"])
 def search_guidelines():
@@ -154,7 +178,20 @@ def search_guidelines():
     query_order = f"ORDER BY {order_by} {order_direction}"
 
     cursor.execute(f"""
-        SELECT id, awmf_guideline_id, title, lversion, extracted_text, created_at
+        SELECT 
+        id,
+        awmf_guideline_id,
+        null as detail_page_url,
+        null as pdf_url,
+        null as pdf,
+        null as extracted_text,
+        created_at,
+        compressed_text,  
+        title,
+        lversion,
+        valid_until,
+        stand,
+        aktueller_hinweis  
         FROM guidelines
         WHERE extracted_text ILIKE %s
         {query_order}
@@ -165,17 +202,7 @@ def search_guidelines():
     cursor.close()
     conn.close()
 
-    return jsonify([
-        {
-            "id": r[0],
-            "awmf_guideline_id": r[1],
-            "title": r[2],
-            "lversion": r[3],
-            "extracted_text": r[4],
-            "created_at": r[5]
-        }
-        for r in results
-    ])
+    return json_serial(results)
 
 
 
