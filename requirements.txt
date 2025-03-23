@@ -1,6 +1,9 @@
-flask
+flask~=3.1.0
 schedule
 requests
 pymupdf
 pdf2image
 pytesseract
+
+psycopg2~=2.9.10
+python-dotenv~=1.0.1

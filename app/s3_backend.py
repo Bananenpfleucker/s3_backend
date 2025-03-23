@@ -2,16 +2,22 @@ from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 import psycopg2
 import os
+from dotenv import load_dotenv
+from pathlib import Path
 
 app = Flask(__name__)
 CORS(app)
 
+
+dotenv_path = Path('keys.env')
+load_dotenv(dotenv_path=dotenv_path)
+
 # Datenbankverbindungsdetails
-DB_HOST = "192.168.178.121"
-DB_NAME = "s3_backend_db"
-DB_USER = "postgres"
-DB_PASSWORD = "PostgresPassword"
-DB_PORT = "5432"
+DB_HOST = os.getenv('DB_HOST')
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+DB_PORT = os.getenv('DB_PORT')
 
 
 def json_serial(guidelines):
@@ -23,7 +29,7 @@ def json_serial(guidelines):
                 "detail_page_url": g[2],
                 "pdf_url": g[3],
                 "pdf": g[4],
-                "extracted_text": [5],
+                "extracted_text": g[5],
                 "created_at": g[6],
                 "compressed_text": g[7],
                 "titel": g[8],
@@ -144,6 +150,7 @@ def get_latest_guidelines():
 
     return json_serial(guidelines)
 
+
 @app.route("/guidelines/search", methods=["GET"])
 def search_guidelines():
     """Ermöglicht das Durchsuchen der extrahierten Texte mit Sortierung & Pagination."""
@@ -205,6 +212,32 @@ def search_guidelines():
     return json_serial(results)
 
 
+@app.route("/guidelines/<int:id>", methods=["GET"])
+def get_guideline(id):
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung"}), 500
+    cursor = conn.cursor()
+
+    cursor.execute(f"""SELECT 
+                id,
+                awmf_guideline_id,
+                null as detail_page_url,
+                null as pdf_url,
+                null as pdf,
+                null as extracted_text,
+                created_at,
+                compressed_text,  
+                title,
+                lversion,
+                valid_until,
+                stand,
+                aktueller_hinweis
+                FROM guidelines WHERE id=%s LIMIT 1""", (id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return json_serial(row)
 
 @app.route("/guidelines/<int:guideline_id>/download", methods=["GET"])
 def download_guideline_pdf(guideline_id):
