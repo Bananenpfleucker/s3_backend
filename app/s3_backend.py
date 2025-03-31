@@ -214,12 +214,13 @@ def search_guidelines():
 
 @app.route("/guidelines/<int:id>", methods=["GET"])
 def get_guideline(id):
+    print("bin hier")
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Datenbankverbindung"}), 500
     cursor = conn.cursor()
 
-    cursor.execute(f"""SELECT 
+    cursor.execute("""SELECT 
                 id,
                 awmf_guideline_id,
                 null as detail_page_url,
@@ -237,7 +238,28 @@ def get_guideline(id):
     row = cursor.fetchone()
     cursor.close()
     conn.close()
-    return json_serial(row)
+
+    if row:
+        # Direktes Mapping des Tupels auf ein JSON-Objekt
+        guideline_json = {
+            "id": row[0],
+            "awmf_guideline_id": row[1],
+            "detail_page_url": row[2],
+            "pdf_url": row[3],
+            "pdf": row[4],
+            "extracted_text": row[5],
+            "created_at": row[6].isoformat() if row[6] else None,
+            "compressed_text": row[7],
+            "title": row[8],
+            "lversion": row[9],
+            "valid_until": row[10].isoformat() if row[10] else None,
+            "stand": row[11].isoformat() if row[11] else None,
+            "aktueller_hinweis": row[12]
+        }
+        return jsonify(guideline_json)
+    else:
+        return jsonify({"error": "Guideline nicht gefunden"}), 404
+
 
 @app.route("/guidelines/<int:guideline_id>/download", methods=["GET"])
 def download_guideline_pdf(guideline_id):
