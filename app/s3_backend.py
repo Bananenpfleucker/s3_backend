@@ -4,6 +4,7 @@ import psycopg2
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from summarizer import process_summary_for_id
 
 app = Flask(__name__)
 CORS(app)
@@ -42,6 +43,13 @@ def json_serial(guidelines):
         ]
     )
 
+def json_serial_prompt(row):
+    return jsonify(
+        {
+            "promptid": row[0],
+            "prompt_text": row[1]
+        }
+    )
 
 def get_db_connection():
     """Stellt eine Verbindung zur PostgreSQL-Datenbank her."""
@@ -281,6 +289,39 @@ def download_guideline_pdf(guideline_id):
         return send_file(pdf_path, as_attachment=True, download_name=f"{row[0]}.pdf")
 
     return jsonify({"error": "PDF nicht gefunden"}), 404
+
+
+@app.route("/currentprompt/", methods=["GET"])
+def get_current_prompt():
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT p.promptid, p.prompt_text FROM prompts p ORDER BY promptid DESC LIMIT 1;")
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+
+    if row:
+        return json_serial_prompt(row)
+    else:
+        return jsonify({"error": "Kein Prompt gefunden"}), 404
+
+
+@app.route("/guidelines/<int:guideline_id>/summarize", methods=["POST"])
+def summarize_guideline(guideline_id):
+    success = process_summary_for_id(guideline_id)
+    if success:
+        return jsonify({
+            "status": "ok",
+            "message": f"Guideline {guideline_id} erfolgreich zusammengefasst"
+        }), 200
+    else:
+        return jsonify({
+            "status": "error",
+            "message": f"Zusammenfassung für Guideline {guideline_id} fehlgeschlagen"
+        }), 400
 
 
 if __name__ == "__main__":

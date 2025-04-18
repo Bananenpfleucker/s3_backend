@@ -1,0 +1,182 @@
+# summarizer.py
+import os
+import time
+import psycopg2
+import json
+from tiktoken import encoding_for_model
+from openai import OpenAI
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Env laden
+dotenv_path = Path('keys.env')
+load_dotenv(dotenv_path=dotenv_path)
+
+# OpenAI‑Client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# DB‑Settings
+DB_HOST     = os.getenv("DB_HOST")
+DB_NAME     = os.getenv("DB_NAME")
+DB_USER     = os.getenv("DB_USER_WRITE")
+DB_PASSWORD = os.getenv("DB_PASSWORD_WRITE")
+DB_PORT     = os.getenv("DB_PORT")
+
+# Model‑Konfiguration
+RAW_MODEL      = "gpt-3.5-turbo-16k"
+FINAL_MODEL    = RAW_MODEL
+MAX_TOKENS     = 3500
+OVERLAP_TOKENS = 200
+MAX_RETRIES    = 3
+RETRY_DELAY    = 5  # Sekunden
+MAX_RECURSION  = 3
+
+# Statische Instruktion für Roh‑Zusammenfassung
+RAW_SUMMARY_INSTRUCTION = (
+    "Du bist ein spezialisiertes Modell zur Zusammenfassung medizinischer Leitlinien. "
+    "Fasse den folgenden Textausschnitt kurz zusammen (1–2 Sätze) und liefere eine prägnante Rohzusammenfassung ohne Strukturvorgabe:\n"
+)
+
+
+def get_db_connection():
+    print("[DEBUG] get_db_connection(): versuche Verbindung zu DB...")
+    try:
+        conn = psycopg2.connect(
+            host     = DB_HOST,
+            port     = DB_PORT,
+            dbname   = DB_NAME,
+            user     = DB_USER,
+            password = DB_PASSWORD
+        )
+        print("[DEBUG] get_db_connection(): Verbindung erfolgreich")
+        return conn
+    except Exception as e:
+        print(f"[ERROR] get_db_connection(): DB-Error: {e}")
+        return None
+
+
+def retry_chat_request(model, messages):
+    print(f"[DEBUG] retry_chat_request(): Modell={model}, Nachrichten count={len(messages)}")
+    for i in range(1, MAX_RETRIES+1):
+        try:
+            resp = client.chat.completions.create(model=model, messages=messages)
+            content = resp.choices[0].message.content
+            print(f"[DEBUG] retry_chat_request(): Erfolg im Versuch {i}, response length={len(content)} chars")
+            return content
+        except Exception as e:
+            print(f"[WARN] retry_chat_request(): OpenAI error {i}/{MAX_RETRIES}: {e}")
+            time.sleep(RETRY_DELAY)
+    print("[ERROR] retry_chat_request(): Alle Versuche fehlgeschlagen")
+    return None
+
+
+def split_text(text, max_tokens=MAX_TOKENS, overlap=OVERLAP_TOKENS, model=RAW_MODEL):
+    print(f"[DEBUG] split_text(): beginne Splitting, text length={len(text)} chars")
+    enc = encoding_for_model(model)
+    tokens = enc.encode(text)
+    chunks, start = [], 0
+    while start < len(tokens):
+        end = min(start + max_tokens, len(tokens))
+        chunks.append(enc.decode(tokens[start:end]))
+        start = end - overlap if end - overlap > start else end
+    print(f"[DEBUG] split_text(): erzeugt {len(chunks)} Chunks")
+    return chunks
+
+
+def recursive_raw_summary(text, depth=0):
+    print(f"[DEBUG] recursive_raw_summary(): depth={depth}")
+    if depth > MAX_RECURSION:
+        print(f"[DEBUG] recursive_raw_summary(): maximale Tiefe erreicht, finaler Call")
+        return retry_chat_request(RAW_MODEL, [
+            {"role": "system", "content": RAW_SUMMARY_INSTRUCTION},
+            {"role": "user",   "content": text}
+        ])
+    chunks = split_text(text)
+    summaries = []
+    for idx, chunk in enumerate(chunks, start=1):
+        print(f"[DEBUG] recursive_raw_summary: Chunk {idx}/{len(chunks)} summary...")
+        res = retry_chat_request(RAW_MODEL, [
+            {"role": "system", "content": RAW_SUMMARY_INSTRUCTION},
+            {"role": "user",   "content": chunk}
+        ])
+        if res:
+            print(f"[DEBUG] recursive_raw_summary: Chunk {idx} result length={len(res)} chars")
+            summaries.append(res)
+        else:
+            print(f"[WARN] recursive_raw_summary: Chunk {idx} keine Antwort")
+    if not summaries:
+        print("[WARN] recursive_raw_summary(): keine Teilsummaries erhalten")
+        return None
+    joined = "\n\n".join(summaries)
+    print(f"[DEBUG] recursive_raw_summary(): joined length={len(joined)} chars")
+    enc = encoding_for_model(RAW_MODEL)
+    if len(enc.encode(joined)) > MAX_TOKENS:
+        print("[DEBUG] recursive_raw_summary(): joined zu groß, rekursiver Aufruf")
+        return recursive_raw_summary(joined, depth+1)
+    return joined
+
+
+def process_summary_for_id(guideline_id: int) -> bool:
+    print(f"[INFO] process_summary_for_id(): Starte ID={guideline_id}")
+    conn = get_db_connection()
+    if not conn:
+        print("[ERROR] process_summary_for_id: DB-Verbindung fehlgeschlagen")
+        return False
+    cur = conn.cursor()
+    # Fetch latest prompt
+    cur.execute("SELECT promptid, prompt_text FROM prompts ORDER BY promptid DESC LIMIT 1")
+    prompt_row = cur.fetchone()
+    if not prompt_row:
+        print("[ERROR] Kein Prompt in DB gefunden")
+        cur.close()
+        conn.close()
+        return False
+    promptid, final_prompt = prompt_row
+    print(f"[DEBUG] geladen PromptID={promptid}")
+    cur.execute("SELECT extracted_text FROM guidelines WHERE id=%s AND extracted_text IS NOT NULL", (guideline_id,))
+    text_row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not text_row:
+        print(f"[ERROR] Prozess fehlgeschlagen: Kein extracted_text für ID={guideline_id}")
+        return False
+    full_text = text_row[0]
+    print(f"[DEBUG] full_text length={len(full_text)} chars")
+
+    print(f"[INFO] Erzeuge Rohzusammenfassung für ID={guideline_id}")
+    raw_summary = recursive_raw_summary(full_text)
+    if not raw_summary:
+        print("[ERROR] Rohzusammenfassung fehlgeschlagen")
+        return False
+    print(f"[DEBUG] raw_summary preview={repr(raw_summary[:200])}... length={len(raw_summary)} chars")
+
+    print(f"[INFO] Erzeuge finale JSON-Zusammenfassung für ID={guideline_id}")
+    full_prompt = [
+        {"role": "system", "content": final_prompt},
+        {"role": "user",   "content": raw_summary}
+    ]
+    response = retry_chat_request(FINAL_MODEL, full_prompt)
+    if not response:
+        print("[ERROR] finale JSON-Zusammenfassung fehlgeschlagen")
+        return False
+    print(f"[DEBUG] response content={response}")
+
+    try:
+        summary_json = json.loads(response)
+        summary_str = json.dumps(summary_json, ensure_ascii=False)
+        print(f"[DEBUG] JSON parse erfolgreich, keys={list(summary_json.keys())}")
+    except json.JSONDecodeError:
+        print("[WARN] Ungültiges JSON, speichere Rohantwort")
+        summary_str = response
+
+    conn = get_db_connection()
+    if not conn:
+        print("[ERROR] Schreib-DB-Verbindung fehlgeschlagen")
+        return False
+    cur = conn.cursor()
+    cur.execute("UPDATE guidelines SET compressed_text=%s WHERE id=%s", (summary_str, guideline_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    print(f"[INFO] process_summary_for_id(): ID={guideline_id} erfolgreich gespeichert")
+    return True
