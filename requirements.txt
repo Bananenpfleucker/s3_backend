@@ -1,9 +1,22 @@
+# Web‑Framework und CORS
 flask~=3.1.0
-schedule
-requests
+Flask-Cors~=4.0.0
+
+# Datenbank
+psycopg2-binary~=2.9.10
+
+# Env‑Loader
+python-dotenv~=1.0.1
+
+# OpenAI Chat‑API
+openai~=1.75.0
+tiktoken~=0.4.0
+
+# PDF‑Verarbeitung (falls du sie brauchst)
 pymupdf
 pdf2image
 pytesseract
 
-psycopg2~=2.9.10
-python-dotenv~=1.0.1
+# Optional/Sonstiges
+requests
+schedule
