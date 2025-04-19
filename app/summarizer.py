@@ -8,26 +8,24 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Lade Umgebungsvariablen aus keys.env (falls vorhanden) und Umgebung
+# Lade Umgebungsvariablen aus keys.env und Umgebung
 dotenv_path = Path('keys.env')
-load_dotenv(dotenv_path=dotenv_path, override=False)
-# Fallback: lade auch Standard-.env, aber überschreibe bereits existierende Variablen nicht
-load_dotenv(override=False)
+load_dotenv(dotenv_path=dotenv_path)
+# Falls noch nicht gesetzt, auch Standard .env laden
+load_dotenv()
 
-# Holen des API-Schlüssels aus der Umgebung oder Fallback-Keys
-OPENAI_API_KEY = (
-    os.getenv("OPENAI_API_KEY") or
-    os.getenv("OPENAI_KEY") or
-    os.getenv("API_KEY")
-)
-if not OPENAI_API_KEY:
+# Holen des API-Schlüssels aus der Umgebung
+def get_openai_api_key():
+    for var in ("OPENAI_API_KEY", "OPENAI_KEY", "API_KEY"):
+        key = os.getenv(var)
+        if key:
+            return key
     raise RuntimeError(
         "OpenAI API Key fehlt! Bitte setzen Sie 'OPENAI_API_KEY', 'OPENAI_KEY' oder 'API_KEY' in der .env oder Umgebung."
     )
-# Stelle sicher, dass die lib den Key aus den ENV-Vars liest
-os.environ.setdefault("OPENAI_API_KEY", OPENAI_API_KEY)
-# OpenAI‑Client initialisieren (nimmt api_key aus ENV)
-client = OpenAI()
+
+OPENAI_API_KEY = get_openai_api_key()
+# Initialisiere OpenAI-Client mit Schlüssel
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # DB‑Settings
