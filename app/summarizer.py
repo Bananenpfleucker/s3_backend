@@ -25,6 +25,9 @@ def get_openai_api_key():
     )
 
 OPENAI_API_KEY = get_openai_api_key()
+# Debug: Zeige geladenen API-Key (verkürzt)
+print(f"[DEBUG] Loaded OPENAI_API_KEY: {OPENAI_API_KEY[:6]}...{OPENAI_API_KEY[-4:]}")
+
 # Initialisiere OpenAI-Client mit Schlüssel
 client = OpenAI(api_key=OPENAI_API_KEY)
 
