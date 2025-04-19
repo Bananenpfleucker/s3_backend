@@ -8,12 +8,17 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pathlib import Path
 
-# Env laden
+# Lade Umgebungsvariablen aus keys.env (falls vorhanden) und Umgebung
 dotenv_path = Path('keys.env')
 load_dotenv(dotenv_path=dotenv_path)
 
-# OpenAI‑Client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Holen des API-Schlüssels aus der Umgebung
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY fehlt! Bitte setzen Sie den Schlüssel in der .env oder in der Umgebung.")
+
+# OpenAI‑Client initialisieren
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # DB‑Settings
 DB_HOST     = os.getenv("DB_HOST")
@@ -71,7 +76,6 @@ def retry_chat_request(model, messages):
 
 
 def split_text(text, max_tokens=MAX_TOKENS, overlap=OVERLAP_TOKENS, model=RAW_MODEL):
-    print(f"[DEBUG] split_text(): beginne Splitting, text length={len(text)} chars")
     enc = encoding_for_model(model)
     tokens = enc.encode(text)
     chunks, start = [], 0
@@ -79,39 +83,28 @@ def split_text(text, max_tokens=MAX_TOKENS, overlap=OVERLAP_TOKENS, model=RAW_MO
         end = min(start + max_tokens, len(tokens))
         chunks.append(enc.decode(tokens[start:end]))
         start = end - overlap if end - overlap > start else end
-    print(f"[DEBUG] split_text(): erzeugt {len(chunks)} Chunks")
     return chunks
 
 
 def recursive_raw_summary(text, depth=0):
-    print(f"[DEBUG] recursive_raw_summary(): depth={depth}")
     if depth > MAX_RECURSION:
-        print(f"[DEBUG] recursive_raw_summary(): maximale Tiefe erreicht, finaler Call")
         return retry_chat_request(RAW_MODEL, [
             {"role": "system", "content": RAW_SUMMARY_INSTRUCTION},
             {"role": "user",   "content": text}
         ])
-    chunks = split_text(text)
     summaries = []
-    for idx, chunk in enumerate(chunks, start=1):
-        print(f"[DEBUG] recursive_raw_summary: Chunk {idx}/{len(chunks)} summary...")
+    for chunk in split_text(text):
         res = retry_chat_request(RAW_MODEL, [
             {"role": "system", "content": RAW_SUMMARY_INSTRUCTION},
             {"role": "user",   "content": chunk}
         ])
         if res:
-            print(f"[DEBUG] recursive_raw_summary: Chunk {idx} result length={len(res)} chars")
             summaries.append(res)
-        else:
-            print(f"[WARN] recursive_raw_summary: Chunk {idx} keine Antwort")
     if not summaries:
-        print("[WARN] recursive_raw_summary(): keine Teilsummaries erhalten")
         return None
     joined = "\n\n".join(summaries)
-    print(f"[DEBUG] recursive_raw_summary(): joined length={len(joined)} chars")
     enc = encoding_for_model(RAW_MODEL)
     if len(enc.encode(joined)) > MAX_TOKENS:
-        print("[DEBUG] recursive_raw_summary(): joined zu groß, rekursiver Aufruf")
         return recursive_raw_summary(joined, depth+1)
     return joined
 
@@ -123,56 +116,48 @@ def process_summary_for_id(guideline_id: int) -> bool:
         print("[ERROR] process_summary_for_id: DB-Verbindung fehlgeschlagen")
         return False
     cur = conn.cursor()
-    # Fetch latest prompt
     cur.execute("SELECT promptid, prompt_text FROM prompts ORDER BY promptid DESC LIMIT 1")
-    prompt_row = cur.fetchone()
-    if not prompt_row:
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
         print("[ERROR] Kein Prompt in DB gefunden")
-        cur.close()
-        conn.close()
         return False
-    promptid, final_prompt = prompt_row
-    print(f"[DEBUG] geladen PromptID={promptid}")
+    promptid, final_prompt = row
+    print(f"[DEBUG] verwende PromptID={promptid}")
+
+    conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("SELECT extracted_text FROM guidelines WHERE id=%s AND extracted_text IS NOT NULL", (guideline_id,))
     text_row = cur.fetchone()
     cur.close()
     conn.close()
     if not text_row:
-        print(f"[ERROR] Prozess fehlgeschlagen: Kein extracted_text für ID={guideline_id}")
+        print(f"[ERROR] Kein extracted_text für ID={guideline_id}")
         return False
     full_text = text_row[0]
-    print(f"[DEBUG] full_text length={len(full_text)} chars")
 
-    print(f"[INFO] Erzeuge Rohzusammenfassung für ID={guideline_id}")
     raw_summary = recursive_raw_summary(full_text)
     if not raw_summary:
         print("[ERROR] Rohzusammenfassung fehlgeschlagen")
         return False
-    print(f"[DEBUG] raw_summary preview={repr(raw_summary[:200])}... length={len(raw_summary)} chars")
 
-    print(f"[INFO] Erzeuge finale JSON-Zusammenfassung für ID={guideline_id}")
-    full_prompt = [
+    response = retry_chat_request(FINAL_MODEL, [
         {"role": "system", "content": final_prompt},
         {"role": "user",   "content": raw_summary}
-    ]
-    response = retry_chat_request(FINAL_MODEL, full_prompt)
+    ])
     if not response:
         print("[ERROR] finale JSON-Zusammenfassung fehlgeschlagen")
         return False
-    print(f"[DEBUG] response content={response}")
 
     try:
         summary_json = json.loads(response)
-        summary_str = json.dumps(summary_json, ensure_ascii=False)
-        print(f"[DEBUG] JSON parse erfolgreich, keys={list(summary_json.keys())}")
+        summary_json = {k:v for k,v in summary_json.items() if v.strip()}
+        summary_str = json.dumps(summary_json, ensure_ascii=False, indent=2)
     except json.JSONDecodeError:
-        print("[WARN] Ungültiges JSON, speichere Rohantwort")
         summary_str = response
 
     conn = get_db_connection()
-    if not conn:
-        print("[ERROR] Schreib-DB-Verbindung fehlgeschlagen")
-        return False
     cur = conn.cursor()
     cur.execute("UPDATE guidelines SET compressed_text=%s WHERE id=%s", (summary_str, guideline_id))
     conn.commit()

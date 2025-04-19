@@ -10,7 +10,7 @@ python-dotenv~=1.0.1
 
 # OpenAI Chat‑API
 openai~=1.75.0
-tiktoken~=0.4.0
+tiktoken~=0.9.0
 
 # PDF‑Verarbeitung (falls du sie brauchst)
 pymupdf
