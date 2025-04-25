@@ -194,24 +194,25 @@ def search_guidelines():
 
     cursor.execute(f"""
         SELECT 
-        id,
-        awmf_guideline_id,
-        null as detail_page_url,
-        null as pdf_url,
-        null as pdf,
-        null as extracted_text,
-        created_at,
-        compressed_text,  
-        title,
-        lversion,
-        valid_until,
-        stand,
-        aktueller_hinweis  
+            id,
+            awmf_guideline_id,
+            null as detail_page_url,
+            null as pdf_url,
+            null as pdf,
+            null as extracted_text,
+            created_at,
+            compressed_text,  
+            title,
+            lversion,
+            valid_until,
+            stand,
+            aktueller_hinweis,
+            ts_rank(fts_extracted_text, to_tsquery('german', %s)) AS rank
         FROM guidelines
-        WHERE extracted_text ILIKE %s
-        {query_order}
+        WHERE fts_extracted_text @@ to_tsquery('german', %s)
+        ORDER BY rank DESC
         LIMIT %s OFFSET %s
-    """, (f"%{query}%", limit, offset))
+    """, (query.replace(' ', ' & '), query.replace(' ', ' & '), limit, offset))
 
     results = cursor.fetchall()
     cursor.close()
@@ -222,7 +223,6 @@ def search_guidelines():
 
 @app.route("/guidelines/<int:id>", methods=["GET"])
 def get_guideline(id):
-    print("bin hier")
     conn = get_db_connection()
     if not conn:
         return jsonify({"error": "Datenbankverbindung"}), 500
