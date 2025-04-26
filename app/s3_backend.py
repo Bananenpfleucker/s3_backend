@@ -220,6 +220,37 @@ def search_guidelines():
 
     return json_serial(results)
 
+@app.route("/guidelines/search/count", methods=["GET"])
+def count_guidelines():
+    """Gibt die Anzahl der Treffer für eine Suchanfrage zurück."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Bitte geben Sie einen Suchbegriff an"}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM guidelines
+            WHERE fts_extracted_text @@ plainto_tsquery('german', %s)
+        """, (query,))
+        count = cursor.fetchone()[0]
+    except Exception as e:
+        print(f"[ERROR] count_guidelines(): {e}")
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Fehler bei der Abfrage"}), 500
+
+    cursor.close()
+    conn.close()
+
+    return jsonify({"count": count})
+
+
 
 @app.route("/guidelines/<int:id>", methods=["GET"])
 def get_guideline(id):
