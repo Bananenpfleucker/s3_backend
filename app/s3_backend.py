@@ -354,6 +354,68 @@ def summarize_guideline(guideline_id):
             "message": f"Zusammenfassung für Guideline {guideline_id} fehlgeschlagen"
         }), 400
 
+@app.route("/guidelines/<int:guideline_id>/vote", methods=["POST"])
+def vote_guideline(guideline_id):
+    """Erhöht Upvote oder Downvote für eine Leitlinie."""
+    data = request.get_json()
+    vote = data.get("vote")
+
+    if vote not in ["up", "down"]:
+        return jsonify({"error": "Ungültiger Abstimmungstyp. Erlaubt: 'up' oder 'down'."}), 400
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
+    cursor = conn.cursor()
+
+    try:
+        if vote == "up":
+            cursor.execute("UPDATE guidelines SET upvotes = upvotes + 1 WHERE id = %s", (guideline_id,))
+        else:
+            cursor.execute("UPDATE guidelines SET downvotes = downvotes + 1 WHERE id = %s", (guideline_id,))
+
+        conn.commit()
+    except Exception as e:
+        print(f"[ERROR] vote_guideline(): {e}")
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Fehler beim Abstimmen"}), 500
+
+    cursor.close()
+    conn.close()
+    return jsonify({"message": f"{vote}vote für ID {guideline_id} gespeichert."})
+
+@app.route("/guidelines/<int:guideline_id>/votes", methods=["GET"])
+def get_votes(guideline_id):
+    """Gibt Upvotes und Downvotes für eine Leitlinie zurück."""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Datenbankverbindung fehlgeschlagen"}), 500
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT upvotes, downvotes FROM guidelines WHERE id = %s", (guideline_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({"error": "Leitlinie nicht gefunden"}), 404
+
+        upvotes, downvotes = row
+    except Exception as e:
+        print(f"[ERROR] get_votes(): {e}")
+        cursor.close()
+        conn.close()
+        return jsonify({"error": "Fehler beim Abrufen der Abstimmungsergebnisse"}), 500
+
+    cursor.close()
+    conn.close()
+    return jsonify({
+        "guideline_id": guideline_id,
+        "upvotes": upvotes,
+        "downvotes": downvotes
+    })
+
+
+
 
 if __name__ == "__main__":
 
